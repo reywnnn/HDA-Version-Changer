@@ -1,0 +1,32 @@
+# Tracked folders and files
+/*
+!/.gitignore
+!/icons/
+!/scripts/
+!/src/
+!/tools/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Visual Studio Code
+.vscode/
+
+# Maya
+*.ma.swatches
+*.mayaSwatches/
+mayaLog*
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
