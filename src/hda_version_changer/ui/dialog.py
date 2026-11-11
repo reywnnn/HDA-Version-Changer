@@ -1,7 +1,8 @@
 """Dialog that switches one chosen asset node of the open scene to another HDA version.
 
-The dialog lists the nodes of the asset family, offers every version the chosen node does not
-use yet, and shows the target file, the target operator and the node's new name. Update and
+The dialog lists the nodes of the asset families, offers every version newer than the one the
+chosen node uses, marks all but the newest as obsolete, and shows the target file, the target
+operator and the node's new name. Update and
 Transfer calls upgrade.run() for that node. The full report goes to the Script Editor and the
 status field shows the result of the last run until it is cleared. show() replaces an open
 dialog instead of opening a second one.
@@ -75,6 +76,15 @@ def _read_only_field():
     return field
 
 
+def _set_dimmed(field, dimmed):
+    """Show the field's text in the gray of disabled text, or in the normal color again.
+    The field stays enabled, so its actions and tooltip keep working."""
+    palette = QtWidgets.QApplication.palette(field)
+    if dimmed:
+        palette.setColor(QtGui.QPalette.Text, palette.color(QtGui.QPalette.Disabled, QtGui.QPalette.Text))
+    field.setPalette(palette)
+
+
 class AboutDialog(QtWidgets.QDialog):
 
     def __init__(self, parent=None):
@@ -145,7 +155,7 @@ class VersionDialog(QtWidgets.QDialog):
         form.setVerticalSpacing(8)
 
         self._node_menu = QtWidgets.QComboBox()
-        self._node_menu.setPlaceholderText("No %s node in the scene" % self._config.asset_family.rsplit("/", 1)[-1])
+        self._node_menu.setPlaceholderText("No %s node in the scene" % self._config.families[-1].name.rsplit("/", 1)[-1])
         self._node_menu.currentIndexChanged.connect(self._on_node_changed)
         form.addRow("Selected Node", self._node_menu)
         form.addRow(_separator())
@@ -243,9 +253,10 @@ class VersionDialog(QtWidgets.QDialog):
         self._on_node_changed()
 
     def _on_node_changed(self, *_):
-        """Offer the versions the chosen node does not use yet, keeping the chosen version if it is still offered."""
+        """Offer the versions newer than the one the chosen node uses, keeping the chosen version if it is still offered.
+        The first offered version is the newest in the HDA folder, so every other one is labeled obsolete."""
         node = self._current_node()
-        current = self._version_menu.currentText()
+        current = self._current_version()
         versions = []
         placeholder = ""
         if node is not None:
@@ -253,11 +264,12 @@ class VersionDialog(QtWidgets.QDialog):
                 versions = upgrade.other_versions(node, self._config)
             except Exception as error:
                 self._set_status("The versions could not be listed: %s" % error)
-            placeholder = "No other version is available"
+            placeholder = "The node already uses the newest version"
 
         self._version_menu.blockSignals(True)
         self._version_menu.clear()
-        self._version_menu.addItems(versions)
+        for version in versions:
+            self._version_menu.addItem(planning.version_label(version, versions[0]), version)
         self._version_menu.setPlaceholderText(placeholder)
         self._version_menu.setCurrentIndex(versions.index(current) if current in versions else (0 if versions else -1))
         self._version_menu.blockSignals(False)
@@ -265,9 +277,9 @@ class VersionDialog(QtWidgets.QDialog):
 
     def _on_version_changed(self, *_):
         """Show the target file, operator and new name of the chosen node and version.
-        Update and Transfer stays disabled if run() would not upgrade the node."""
+        Without a version to offer, show the node's current file, operator and name in gray instead."""
         node = self._current_node()
-        version = self._version_menu.currentText()
+        version = self._current_version()
         target, names = None, []
         if node is not None and version:
             try:
@@ -275,19 +287,36 @@ class VersionDialog(QtWidgets.QDialog):
             except Exception as error:
                 self._set_status("The version could not be previewed: %s" % error)
 
-        if target is None:
-            path, absolute, asset = "", "", ""
-        else:
+        path, absolute, asset, name = "", "", "", ""
+        current = False
+        if target is not None:
             path = planning.display_path(target.otl_path, self._config.display_root)
             absolute, asset = target.otl_path_abs, target.asset
+            name = names[0][1] if names else ""
+        elif node is not None and not version:
+            try:
+                asset, otl_path, absolute = upgrade.current_hda(node, self._config)
+            except Exception as error:
+                self._set_status("The node could not be read: %s" % error)
+            else:
+                path = planning.display_path(otl_path, self._config.display_root)
+                name = node.split("|")[-1]
+                current = True
+
         self._path_field.setText(path)
         self._path_field.setToolTip(absolute)
         self._asset_field.setText(asset)
-        self._name_field.setText(names[0][1] if names else "")
+        self._name_field.setText(name)
+        for field in (self._path_field, self._asset_field, self._name_field):
+            _set_dimmed(field, current)
         self._update_button.setEnabled(bool(names) and not self._busy)
 
     def _current_node(self):
         return self._node_menu.currentData()
+
+    def _current_version(self):
+        """Return the chosen version without its obsolete label, or an empty string if none is chosen."""
+        return self._version_menu.currentData() or ""
 
     def _set_status(self, text):
         self._status_field.setText(text)
@@ -312,7 +341,7 @@ class VersionDialog(QtWidgets.QDialog):
         """Upgrade the chosen node and show the result in the status field.
         The node is found again by its UUID afterwards, because the upgrade renames it."""
         node = self._current_node()
-        version = self._version_menu.currentText()
+        version = self._current_version()
         if node is None or not version:
             return
         uuid = _uuid(node)
@@ -406,7 +435,8 @@ def show(config: UpgradeConfig = SILO_GEN):
         cmds.warning(str(error))
         return None
     if not versions:
-        cmds.warning("No HDA file named %s<version>.hda was found in %s." % (config.file_prefix, config.hda_folder))
+        cmds.warning("No HDA file named %s was found in %s."
+                     % (" or ".join("%s<version>.hda" % family.file_prefix for family in config.families), config.hda_folder))
         return None
 
     geometry, status = _close_open_dialogs()

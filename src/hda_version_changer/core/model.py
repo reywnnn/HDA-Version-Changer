@@ -46,6 +46,7 @@ class NodeResult:
     status: NodeStatus
     final_name: str | None = None
     apply: ApplyResult | None = None
+    renamed: dict[str, str] = field(default_factory=dict)
     ignored: dict[str, str] = field(default_factory=dict)
     added: dict[str, object] = field(default_factory=dict)
     error: str | None = None

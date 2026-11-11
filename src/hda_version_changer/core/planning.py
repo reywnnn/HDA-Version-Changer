@@ -1,4 +1,4 @@
-"""Rules for versions, target paths, node names, ignored parameters and the status of an upgraded node.
+"""Rules for versions, target paths, node names, renamed and ignored parameters and the status of an upgraded node.
 
 The rules work without Maya, so the Maya modules only carry them out.
 """
@@ -7,8 +7,12 @@ The rules work without Maya, so the Maya modules only carry them out.
 
 import copy
 import re
-from .config import UpgradeConfig
+from .config import AssetFamily, UpgradeConfig
 from .model import ApplyResult, NodePlan, NodeStatus, UpgradeTarget
+
+
+
+OBSOLETE_SUFFIX = " (obsolete)"
 
 
 
@@ -39,14 +43,46 @@ def version_from_file_name(file_name: str, prefix: str) -> str | None:
     return match.group(1) if match else None
 
 
+def version_from_asset_name(asset_name: str) -> str | None:
+    """Return the version at the end of an operator name such as jandv.dev::Object/silo_gen::1.1.
+    Returns None if the name does not end in a version."""
+    match = re.fullmatch(r".*::(\d+(?:\.\d+)*)", asset_name)
+    return match.group(1) if match else None
+
+
+def version_key(version: str) -> tuple[int, ...]:
+    """Return the numbers of a version, so that 1.10 sorts after 1.2 and 1.2.0 after 1.1."""
+    return tuple(int(part) for part in version.split("."))
+
+
 def sort_versions(versions: list[str]) -> list[str]:
     """Return the versions from the newest to the oldest, comparing them number by number."""
-    return sorted(versions, key=lambda version: [int(part) for part in version.split(".")], reverse=True)
+    return sorted(versions, key=version_key, reverse=True)
 
 
-def make_target(config: UpgradeConfig, version: str, project_path: str) -> UpgradeTarget:
-    asset = "%s::%s" % (config.asset_family, version)
-    file_name = "%s%s.hda" % (config.file_prefix, version)
+def find_family_versions(families: tuple[AssetFamily, ...], file_names: list[str]) -> dict[str, AssetFamily]:
+    """Return every version the HDA file names offer and the family whose file holds it.
+    Raises ValueError if files of two families have the same version."""
+    found = {}
+    for file_name in file_names:
+        for family in families:
+            version = version_from_file_name(file_name, family.file_prefix)
+            if version is None:
+                continue
+            if found.get(version, family) != family:
+                raise ValueError("Version %s has an HDA file of both %s and %s." % (version, found[version].name, family.name))
+            found[version] = family
+    return found
+
+
+def version_label(version: str, newest: str) -> str:
+    """Return the version as the version menu shows it, with (obsolete) after every version but the newest."""
+    return version if version == newest else version + OBSOLETE_SUFFIX
+
+
+def make_target(config: UpgradeConfig, family: AssetFamily, version: str, project_path: str) -> UpgradeTarget:
+    asset = "%s::%s" % (family.name, version)
+    file_name = "%s%s.hda" % (family.file_prefix, version)
     otl_path = config.hda_folder.rstrip("/") + "/" + file_name
     return UpgradeTarget(
         version=version,
@@ -58,15 +94,16 @@ def make_target(config: UpgradeConfig, version: str, project_path: str) -> Upgra
     )
 
 
-def is_in_family(asset_name: str, asset_family: str) -> bool:
-    return asset_name.startswith(asset_family + "::")
+def is_in_family(asset_name: str, families: tuple[AssetFamily, ...]) -> bool:
+    """Check if the operator name is a version of one of the families."""
+    return any(asset_name.startswith(family.name + "::") for family in families)
 
 
-def is_on_target(asset_name: str, otl_path: str, target: UpgradeTarget, token: str, project_path: str) -> bool:
-    """Check if a node already uses the target operator from the target file.
-    The paths are compared without the token and without regard to case, as Windows does."""
-    path = expand_project_path(otl_path, token, project_path)
-    return asset_name == target.asset and path.lower() == target.otl_path_abs.lower()
+def is_older(asset_name: str, version: str) -> bool:
+    """Check if the operator name ends in a lower version than the given one.
+    Returns False if the operator name does not end in a version."""
+    current = version_from_asset_name(asset_name)
+    return current is not None and version_key(current) < version_key(version)
 
 
 def find_duplicate_names(names: list[str]) -> list[str]:
@@ -103,6 +140,31 @@ def is_upgraded_name(name: str, base: str) -> bool:
     """Check if the name is one that unique_node_name builds from base."""
     prefix, _, width = _split_number(base)
     return name == base or re.fullmatch(re.escape(prefix) + r"\d{%d,}" % max(width, 1), name) is not None
+
+
+def rename_parms(preset: dict, renamed_parms: dict[str, str]) -> tuple[dict, dict[str, str]]:
+    """Return a copy of the preset with old parameter names replaced by new ones, and the names it replaced.
+    An old name stays if the preset already holds the new name."""
+    result = copy.deepcopy(preset)
+    parameters = result["parameters"]
+    labels = result.get("menu_labels") or {}
+    renamed = {}
+    for old, new in renamed_parms.items():
+        if old not in parameters or new in parameters:
+            continue
+        parameters[new] = parameters.pop(old)
+        if old in labels:
+            labels[new] = labels.pop(old)
+        renamed[old] = new
+    return result, renamed
+
+
+def prepare_preset(preset: dict, renamed_parms: dict[str, str], ignored_parms: dict[str, str]) -> tuple[dict, dict[str, str], dict[str, str]]:
+    """Return the preset as it is written to the target, the parameters renamed in it and the ignored ones it held.
+    Old names are replaced first, so ignored_parms name parameters of the target version."""
+    renamed_preset, renamed = rename_parms(preset, renamed_parms)
+    cleaned, ignored = split_ignored(renamed_preset, ignored_parms)
+    return cleaned, renamed, ignored
 
 
 def split_ignored(preset: dict, ignored_parms: dict[str, str]) -> tuple[dict, dict[str, str]]:

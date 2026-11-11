@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## 0.1.1-beta (11.11.2026) - PATCH, Pre-release Testing Version
+
+- Version 1.2.0 of `silo_gen` is now offered. Its file `scs.dev.silo_gen.1.2.0.hda` and its
+  operator `scs.dev::Object/silo_gen::1.2.0` use the namespace `scs.dev` instead of
+  `jandv.dev`, so the tool now reads the HDA files of both namespaces and finds the nodes of
+  both.
+
+- A node can only be upgraded. **Available Versions** offers only versions newer than the one
+  the node uses, and an upgraded node can no longer be switched back or switched again to the
+  same version from another file. Every version but the newest is shown as obsolete, for example
+  `1.1 (obsolete)`, and can still be chosen.
+
+- Nodes made with an early revision of 1.0 (`batch_01`) keep their loadout and roof trim
+  settings. That revision stores seven parameters under other names, such as
+  `extra_struct_type` and `roof_trim`; their values are now written to the current parameters
+  `loadout_struct_type` and `roof_trim_type`, and the report lists each renamed parameter.
+
+- Switching a node no longer prints the Houdini Engine warnings "Could not find asset … in OTL
+  file …" and "… but the expected path was …". Houdini Engine now creates the new version once,
+  from the new file, instead of once with the old file and once with the new one.
+
 ## 0.1.0-beta (30.10.2026) - MINOR, Pre-release Testing Version
 
 - The tool is ready to move into the beta testing phase.

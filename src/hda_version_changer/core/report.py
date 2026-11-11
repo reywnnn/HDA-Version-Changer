@@ -51,7 +51,7 @@ def format_status(report: UpgradeReport) -> str:
 def transfer_counts(result: NodeResult) -> tuple[int, int]:
     """Return how many values of the node were transferred and how many it had, without the ignored ones.
     A value counts as transferred if it is not missing, has no problem and matches the node."""
-    parms = set(result.plan.preset["parameters"]) - set(result.ignored)
+    parms = {result.renamed.get(parm, parm) for parm in result.plan.preset["parameters"]} - set(result.ignored)
     apply = result.apply
     if apply is None:
         return 0, len(parms)
@@ -106,6 +106,8 @@ def _node_lines(result: NodeResult) -> list[str]:
     apply = result.apply
     if apply:
         lines.append(_INDENT + "written: %d value(s) in %d pass(es)" % (len(apply.written), apply.passes))
+    for old, new in sorted(result.renamed.items()):
+        lines.append(_INDENT + "renamed: %s -> %s" % (old, new))
     for parm, reason in sorted(result.ignored.items()):
         lines.append(_INDENT + "ignored: %s (%s)" % (parm, reason))
     if apply:

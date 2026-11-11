@@ -41,7 +41,7 @@ def classify_attr(attr: str, attr_type: str | None, children: list, multi: bool)
     if "sepparm" in attr or "spacer" in attr or "__dummy__" in attr or attr.endswith("__button"):
         return IGNORED, ""
     if attr.endswith("__multiSize"):
-        return UNSUPPORTED, "multiparm (not supported)"
+        return UNSUPPORTED, "multiparameter (not supported)"
     if attr.endswith("__ramp"):
         return UNSUPPORTED, "ramp (not supported)"
     if attr.endswith("__node"):
